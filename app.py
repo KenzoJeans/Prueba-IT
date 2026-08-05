@@ -8,7 +8,7 @@ import urllib.parse
 from datetime import datetime
 
 # 1. Configuración de la página
-st.set_page_config(page_title="Mantenimiento IT | Kenzo Jeans", layout="wide", page_icon=")
+st.set_page_config(page_title="Mantenimiento IT | Kenzo Jeans", layout="wide", page_icon="💻")
 
 # Estilos CSS
 st.markdown("""
