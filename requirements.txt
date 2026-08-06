@@ -4,3 +4,4 @@ plotly
 streamlit-drawable-canvas
 Pillow
 openpyxl
+requests
