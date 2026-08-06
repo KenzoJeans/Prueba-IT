@@ -1,3 +1,12 @@
+¡No te preocupes! Este es un error muy común cuando copiamos y pegamos fragmentos de código.
+
+El mensaje **`NameError: name 'df_mantenimiento_full' is not defined`** significa que Streamlit intentó usar esa variable para armar los filtros de la barra lateral, pero se dio cuenta de que la variable **no existe**.
+
+Lo más probable es que, al reemplazar el bloque de la función en el paso anterior, se haya borrado por accidente la línea de código que *ejecuta* la función y guarda los datos, la cual iba justo debajo: `df_mantenimiento_full, msj_error = cargar_datos_mantenimiento()`.
+
+Para evitar que falten piezas o haya problemas de indentación, **aquí tienes el código completo y definitivo**. Solo debes seleccionar **todo** el texto que tienes actualmente en tu archivo `form_sistemas_mejorado.py`, borrarlo, y pegar este código:
+
+```python
 import streamlit as st
 import pandas as pd
 import plotly.express as px
@@ -43,7 +52,7 @@ def cargar_datos_mantenimiento():
         # Normalizar nombres de columnas a mayúsculas y sin espacios innecesarios
         df.columns = df.columns.str.strip().str.upper()
 
-        # --- SOLUCIÓN: Desambiguar columnas duplicadas ---
+        # Desambiguar columnas duplicadas
         nuevas_columnas = []
         vistas = {}
         for col in df.columns:
@@ -54,7 +63,6 @@ def cargar_datos_mantenimiento():
                 nuevas_columnas.append(f"{col}_{vistas[col]}")
                 vistas[col] += 1
         df.columns = nuevas_columnas
-        # --------------------------------------------------
 
         # Limpieza y conversión de fechas
         cols_fecha = [c for c in df.columns if 'FECHA' in c]
@@ -67,10 +75,12 @@ def cargar_datos_mantenimiento():
     except Exception as e:
         return pd.DataFrame(), f"Error al conectar con la hoja: {str(e)}"
 
+# ---> ESTA ES LA LÍNEA QUE FALTABA <---
+df_mantenimiento_full, msj_error = cargar_datos_mantenimiento()
+
 # 3. FUNCIONES PARA GESTIÓN DE FIRMAS
 @st.cache_data(ttl=60)
 def cargar_historico_firmas():
-    """Carga el historial de firmas desde Google Sheets"""
     ID_HOJA = "1hbXmOgYGoJ1vouSodHnh3nNB9kQQ6ST9EV8lIzd9-m4"
     nombre_encoded = urllib.parse.quote("Firmas Validadas")
     url = f"https://docs.google.com/spreadsheets/d/{ID_HOJA}/gviz/tq?tqx=out:csv&sheet={nombre_encoded}"
@@ -84,7 +94,6 @@ def cargar_historico_firmas():
         return pd.DataFrame(columns=['PLACA', 'USUARIO', 'TIMESTAMP', 'CONFORMIDAD', 'OBSERVACIONES', 'FIRMA_BASE64'])
 
 def convertir_imagen_a_base64(image_data):
-    """Convierte la imagen del canvas a base64 para almacenamiento"""
     if image_data is None:
         return None
     img = Image.fromarray(image_data.astype('uint8'))
@@ -94,7 +103,6 @@ def convertir_imagen_a_base64(image_data):
     return img_base64
 
 def decodificar_firma(firma_base64):
-    """Convierte base64 de vuelta a imagen para mostrar"""
     if not firma_base64 or pd.isna(firma_base64):
         return None
     try:
@@ -462,3 +470,5 @@ with tab_firmas:
         st.info("📭 Aún no hay firmas registradas. Dirígete a la pestaña 'Validación y Firma de Actas' para capturar una.")
 
 st.markdown("<div class='footer'>Sistemas e Infraestructura · Kenzo Jeans SAS</div>", unsafe_allow_html=True)
+
+```
