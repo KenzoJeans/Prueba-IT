@@ -271,15 +271,20 @@ with tab_form:
             if WEBHOOK_URL == "":
                 st.info("ℹ️ El formulario funciona perfectamente. En el siguiente paso conectaremos la base de datos para registrar esto.")
             else:
-                try:
-                    respuesta = requests.post(WEBHOOK_URL, json=datos_mantenimiento)
-                    if respuesta.status_code == 200:
-                        st.success(f"✅ ¡El acta del equipo {f_placas} se ha subido correctamente!")
-                        st.balloons()
-                    else:
-                        st.error("Hubo un problema al contactar con la base de datos.")
-                except Exception as e:
-                    st.error(f"Error de conexión: {str(e)}")
+                    try:
+                        respuesta = requests.post(WEBHOOK_URL, json=datos_mantenimiento)
+                        
+                        # --- AQUÍ ESTÁ EL CAMBIO ---
+                        st.write(f"Código HTTP: {respuesta.status_code}")
+                        st.write(f"Respuesta cruda de Google: {respuesta.text}")
+                        
+                        if respuesta.status_code == 200 and "success" in respuesta.text:
+                            st.success(f"✅ ¡El acta del equipo {f_placas} se ha subido correctamente!")
+                            st.balloons()
+                        else:
+                            st.error(f"⚠️ Google rechazó el registro. Respuesta: {respuesta.text}")
+                    except Exception as e:
+                        st.error(f"Error de conexión: {str(e)}")
 
 # --- PESTAÑA 2: DASHBOARD ---
 with tab_dashboard:
