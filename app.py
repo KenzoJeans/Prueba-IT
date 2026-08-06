@@ -1,12 +1,3 @@
-¡No te preocupes! Este es un error muy común cuando copiamos y pegamos fragmentos de código.
-
-El mensaje **`NameError: name 'df_mantenimiento_full' is not defined`** significa que Streamlit intentó usar esa variable para armar los filtros de la barra lateral, pero se dio cuenta de que la variable **no existe**.
-
-Lo más probable es que, al reemplazar el bloque de la función en el paso anterior, se haya borrado por accidente la línea de código que *ejecuta* la función y guarda los datos, la cual iba justo debajo: `df_mantenimiento_full, msj_error = cargar_datos_mantenimiento()`.
-
-Para evitar que falten piezas o haya problemas de indentación, **aquí tienes el código completo y definitivo**. Solo debes seleccionar **todo** el texto que tienes actualmente en tu archivo `form_sistemas_mejorado.py`, borrarlo, y pegar este código:
-
-```python
 import streamlit as st
 import pandas as pd
 import plotly.express as px
@@ -470,5 +461,3 @@ with tab_firmas:
         st.info("📭 Aún no hay firmas registradas. Dirígete a la pestaña 'Validación y Firma de Actas' para capturar una.")
 
 st.markdown("<div class='footer'>Sistemas e Infraestructura · Kenzo Jeans SAS</div>", unsafe_allow_html=True)
-
-```
