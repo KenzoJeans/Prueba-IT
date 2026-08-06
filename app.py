@@ -10,10 +10,19 @@ import base64
 import json
 import requests
 from PIL import Image
- 
+
+try:
+    from reportlab.lib.pagesizes import letter
+    from reportlab.lib.styles import getSampleStyleSheet
+    from reportlab.lib import colors
+    from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, Image as RLImage
+    REPORTLAB_DISPONIBLE = True
+except ModuleNotFoundError:
+    REPORTLAB_DISPONIBLE = False
+
 # 1. Configuración de la página
 st.set_page_config(page_title="Mantenimiento IT | Kenzo Jeans", layout="wide", page_icon="💻")
- 
+
 # ==============================================================================
 # Preferido: define WEBHOOK_URL en .streamlit/secrets.toml como:
 # webhook_url = "https://script.google.com/macros/s/..."
@@ -23,7 +32,7 @@ try:
 except Exception:
     WEBHOOK_URL = "https://script.google.com/macros/s/AKfycbyDniiOlytcSqjvACWjoaJpSb5kXodI_qOcvT0gHlv7_rqW_DlFQg2RCDSD8UsLojyZ/exec"
 # ==============================================================================
- 
+
 # ==============================================================================
 # LISTAS CERRADAS DE ÁREAS/ALMACENES — editar aquí si se agrega, quita o renombra
 # una sede. El operario del formulario NO puede escribir nombres libres: solo
@@ -45,7 +54,7 @@ AREAS_ALMACENES = sorted([
     "OUTLET CARRERA 62", "RIONEGRO – ANTIOQUIA", "OUTLET FLORESTA", "ESPINAL",
     "FUNZA CENTRO", "BODEGA CRA 62",
 ])
- 
+
 AREAS_ADMINISTRATIVOS = sorted([
     "SECRETARIA (Gerencia / Presidencia)", "ENFERMERÍA",
     "PORTERIA SEGURIDAD – IMEGA", "PORTERIA SEGURIDAD - CARRERA 62",
@@ -66,7 +75,7 @@ AREAS_ADMINISTRATIVOS = sorted([
     "INGENIERÍA – SATÉLITE", "AMBIENTAL",
 ])
 # ==============================================================================
- 
+
 # Estilos CSS
 st.markdown("""
     <style>
@@ -77,22 +86,22 @@ st.markdown("""
     .status-ok { color: #4ade80; } .status-warning { color: #f59e0b; } .status-critical { color: #ef4444; }
     </style>
 """, unsafe_allow_html=True)
- 
+
 st.title("💻 Gestión y Control de Mantenimiento de Equipos")
 st.markdown("Dashboard de indicadores, registro y validación de actas de mantenimiento IT.")
- 
+
 # 2. FUNCIONES DE CARGA Y PROCESAMIENTO DE DATOS
 @st.cache_data(ttl=60)
 def cargar_datos_mantenimiento():
     ID_HOJA = "1hbXmOgYGoJ1vouSodHnh3nNB9kQQ6ST9EV8lIzd9-m4"
     nombre_encoded = urllib.parse.quote("Form_Responses")
     url = f"https://docs.google.com/spreadsheets/d/{ID_HOJA}/gviz/tq?tqx=out:csv&sheet={nombre_encoded}"
- 
+
     try:
         req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
         with urllib.request.urlopen(req) as response:
             df = pd.read_csv(io.BytesIO(response.read()))
- 
+
         df.columns = df.columns.str.strip().str.upper()
         nuevas_columnas = []
         vistas = {}
@@ -104,19 +113,19 @@ def cargar_datos_mantenimiento():
                 nuevas_columnas.append(f"{col}_{vistas[col]}")
                 vistas[col] += 1
         df.columns = nuevas_columnas
- 
+
         cols_fecha = [c for c in df.columns if 'FECHA' in c]
         if cols_fecha:
             df['FECHA_CLEAN'] = pd.to_datetime(df[cols_fecha[0]], errors='coerce')
         else:
             df['FECHA_CLEAN'] = pd.NaT
- 
+
         return df, None
     except Exception as e:
         return pd.DataFrame(), f"Error al conectar con la hoja: {str(e)}"
- 
+
 df_mantenimiento_full, msj_error = cargar_datos_mantenimiento()
- 
+
 def convertir_imagen_a_base64(image_data):
     if image_data is None:
         return None
@@ -124,42 +133,85 @@ def convertir_imagen_a_base64(image_data):
     buffered = io.BytesIO()
     img.save(buffered, format="PNG")
     return base64.b64encode(buffered.getvalue()).decode()
- 
+
+def generar_pdf_acta(campos, imagen_firma_bytes, titulo_acta):
+    """Genera un PDF de una acta de mantenimiento a partir de una lista de tuplas (campo, valor)."""
+    buffer = io.BytesIO()
+    doc = SimpleDocTemplate(buffer, pagesize=letter, topMargin=40, bottomMargin=40, leftMargin=40, rightMargin=40)
+    estilos = getSampleStyleSheet()
+    elementos = []
+
+    elementos.append(Paragraph("Acta de Mantenimiento de Equipos IT", estilos['Title']))
+    elementos.append(Paragraph("Kenzo Jeans SAS · Sistemas e Infraestructura", estilos['Normal']))
+    elementos.append(Paragraph(titulo_acta, estilos['Normal']))
+    elementos.append(Spacer(1, 16))
+
+    datos_tabla = [[Paragraph(f"<b>{campo}</b>", estilos['Normal']), Paragraph(str(valor), estilos['Normal'])] for campo, valor in campos]
+    tabla = Table(datos_tabla, colWidths=[150, 350])
+    tabla.setStyle(TableStyle([
+        ('GRID', (0, 0), (-1, -1), 0.5, colors.grey),
+        ('VALIGN', (0, 0), (-1, -1), 'TOP'),
+        ('BACKGROUND', (0, 0), (0, -1), colors.whitesmoke),
+        ('FONTSIZE', (0, 0), (-1, -1), 9),
+        ('TOPPADDING', (0, 0), (-1, -1), 5),
+        ('BOTTOMPADDING', (0, 0), (-1, -1), 5),
+    ]))
+    elementos.append(tabla)
+    elementos.append(Spacer(1, 20))
+
+    elementos.append(Paragraph("Firma de Conformidad", estilos['Heading3']))
+    if imagen_firma_bytes:
+        try:
+            elementos.append(RLImage(io.BytesIO(imagen_firma_bytes), width=200, height=70))
+        except Exception:
+            elementos.append(Paragraph("No se pudo procesar la imagen de la firma.", estilos['Normal']))
+    else:
+        elementos.append(Paragraph("Sin firma registrada en este acta.", estilos['Normal']))
+
+    doc.build(elementos)
+    buffer.seek(0)
+    return buffer.getvalue()
+
 # 3. FILTROS EN SIDEBAR
 hoy = datetime.today().date()
 st.sidebar.header("⚙️ Filtros Globales")
 st.sidebar.markdown("Personaliza la vista del dashboard:")
- 
+
 if not df_mantenimiento_full.empty and 'FECHA_CLEAN' in df_mantenimiento_full.columns:
     fechas_validas = df_mantenimiento_full['FECHA_CLEAN'].dropna()
     min_date = fechas_validas.min().date() if not fechas_validas.empty else hoy
     max_date = fechas_validas.max().date() if not fechas_validas.empty else hoy
 else:
     min_date = max_date = hoy
- 
+
 min_selec = min(min_date, datetime(2020, 1, 1).date())
 max_selec = max(max_date, hoy) + timedelta(days=365)
- 
+
 fecha_rango = st.sidebar.date_input("Rango de Fechas", value=[min_date, max_date] if min_date <= max_date else [hoy, hoy], min_value=min_selec, max_value=max_selec)
- 
+
 df_mantenimiento = df_mantenimiento_full.copy()
 if len(fecha_rango) == 2:
     start_date, end_date = fecha_rango
     if 'FECHA_CLEAN' in df_mantenimiento.columns:
         mask = (df_mantenimiento['FECHA_CLEAN'].dt.date >= start_date) & (df_mantenimiento['FECHA_CLEAN'].dt.date <= end_date)
         df_mantenimiento = df_mantenimiento.loc[mask]
- 
+
 col_area = next((c for c in df_mantenimiento.columns if 'ÁREA' in c or 'AREA' in c), None)
+# Base para las alertas de próximo mantenimiento: respeta el filtro de área, pero NO el
+# rango de fechas (que filtra por fecha en que se hizo el mantenimiento, no por la fecha
+# del próximo) — así un mantenimiento antiguo con una alerta próxima no se pierde al filtrar.
+df_mantenimiento_alertas = df_mantenimiento_full.copy()
 if col_area and not df_mantenimiento[col_area].isnull().all():
     areas_disponibles = sorted(df_mantenimiento[col_area].dropna().unique().tolist())
     area_filtro = st.sidebar.multiselect("Filtrar por Área/Depto:", areas_disponibles, default=areas_disponibles)
     if area_filtro:
         df_mantenimiento = df_mantenimiento[df_mantenimiento[col_area].isin(area_filtro)]
- 
+        df_mantenimiento_alertas = df_mantenimiento_alertas[df_mantenimiento_alertas[col_area].isin(area_filtro)]
+
 # Lista maestra de áreas para el formulario: se toma de TODO el histórico (sin filtro de fecha)
 # para que el desplegable del filtro del sidebar siempre incluya todas las áreas registradas.
 st.sidebar.markdown("---")
- 
+
 # 4. INTERFAZ DE PESTAÑAS
 tab_form, tab_dashboard, tab_datos, tab_firmas = st.tabs([
     "📝 Nuevo Mantenimiento",
@@ -167,7 +219,7 @@ tab_form, tab_dashboard, tab_datos, tab_firmas = st.tabs([
     "📋 Datos Completos", 
     "📄 Historial de Firmas"
 ])
- 
+
 # --- PESTAÑA 1: FORMULARIO DE REGISTRO NATIVO (IT) ---
 with tab_form:
     st.markdown("### Registro de Mantenimiento Preventivo / Correctivo")
@@ -180,7 +232,7 @@ with tab_form:
         f_fecha = st.date_input("Fecha del mantenimiento", datetime.today())
         f_usuario = st.text_input("Usuario responsable*")
         f_cargo = st.text_input("Cargo")
- 
+
         tipo_area = st.radio("Tipo de área*", ["🏬 Almacén", "🏢 Administrativo"], horizontal=True)
         lista_areas = AREAS_ALMACENES if tipo_area == "🏬 Almacén" else AREAS_ADMINISTRATIVOS
         placeholder_area = "Busca el almacén..." if tipo_area == "🏬 Almacén" else "Busca el área administrativa..."
@@ -194,9 +246,9 @@ with tab_form:
         f_placas = st.text_input("Placas*")
         f_marca = st.text_input("Marca/Modelo")
         f_serie = st.text_input("Número de serie")
- 
+
     st.write("---")
- 
+
     # SECCIÓN 2
     st.markdown("#### 2. CONDICIONES INICIALES DEL EQUIPO")
     f_condiciones = st.multiselect(
@@ -206,9 +258,9 @@ with tab_form:
          "Estado de puertos USB / HDMI / Red", "Lectura de temperaturas (si aplica)", 
          "Revisión visual de daños físicos"]
     )
- 
+
     st.write("---")
- 
+
     # SECCIÓN 3
     st.markdown("#### 3. ACTIVIDADES REALIZADAS EN EL MANTENIMIENTO PREVENTIVO")
     col_act1, col_act2 = st.columns(2)
@@ -231,7 +283,7 @@ with tab_form:
             "Revisión de contraseñas y accesos", "Verificación de firewall", 
             "Verificación de software autorizado"
         ])
- 
+
     with col_act2:
         f_revision_elec = st.multiselect("Revisión eléctrica y electrónica:", [
             "Revisión de la fuente de poder", "Revisión de cables de corriente", 
@@ -244,9 +296,9 @@ with tab_form:
             "Optimización de disco", "Actualización de sistema operativo", 
             "Actualización de controladores", "Actualización de antivirus"
         ])
- 
+
     st.write("---")
- 
+
     # SECCIONES 4, 5 Y 6
     st.markdown("#### 4. HALLAZGOS ENCONTRADOS")
     f_hallazgos = st.text_area("Describa los problemas o hallazgos relevantes:", height=100)
@@ -256,9 +308,9 @@ with tab_form:
     
     st.markdown("#### 6. RECOMENDACIONES")
     f_recomendaciones = st.text_area("Recomendaciones para el usuario:", height=100)
- 
+
     st.write("---")
- 
+
     # SECCIÓN 7
     st.markdown("#### 7. VALIDACIÓN DEL MANTENIMIENTO")
     col_val1, col_val2 = st.columns(2)
@@ -278,9 +330,9 @@ with tab_form:
             
     with col_val2:
         f_proximo = st.date_input("Próximo mantenimiento recomendado para:", datetime.today() + timedelta(days=180))
- 
+
     st.write("---")
- 
+
     # FIRMA
     st.markdown("### ✍️ Firma de Conformidad")
     st.markdown("Firma del usuario responsable aceptando el equipo tras el mantenimiento.")
@@ -330,7 +382,7 @@ with tab_form:
             else:
                 try:
                     respuesta = requests.post(WEBHOOK_URL, json=datos_mantenimiento)
- 
+
                     if respuesta.status_code == 200 and "success" in respuesta.text:
                         st.success(f"✅ ¡El acta del equipo {f_placas} se ha subido correctamente!")
                         st.balloons()
@@ -341,40 +393,103 @@ with tab_form:
                             st.write(f"Respuesta cruda de Google: {respuesta.text}")
                 except Exception as e:
                     st.error(f"Error de conexión: {str(e)}")
- 
+
 # --- PESTAÑA 2: DASHBOARD ---
 with tab_dashboard:
     if msj_error:
         st.error(msj_error)
- 
+
     if not df_mantenimiento.empty:
         col_equipo = next((c for c in df_mantenimiento.columns if 'PLACA' in c), None)
         col_estado = next((c for c in df_mantenimiento.columns if 'VALIDACION_ESTADO' in c or 'ESTADO' in c), None)
         col_condiciones = next((c for c in df_mantenimiento.columns if 'CONDICIONES_INICIALES' in c), None)
- 
+
         def calcular_pct_optimo(df):
             if col_estado and not df[col_estado].isnull().all():
                 total = len(df)
                 optimos = len(df[df[col_estado].astype(str).str.contains('Óptimo|Optimo|Operativo', case=False, na=False)])
                 return round((optimos / total * 100), 1) if total > 0 else 0
             return 0
- 
+
         # --- KPIs GLOBALES ---
         col1, col2, col3, col4 = st.columns(4)
         col1.markdown(f"<div class='kpi-card'><div class='kpi-label'>Mantenimientos Realizados</div><div class='kpi-value'>{len(df_mantenimiento)}</div></div>", unsafe_allow_html=True)
- 
+
         equipos_unicos = df_mantenimiento[col_equipo].nunique() if col_equipo else 0
         col2.markdown(f"<div class='kpi-card'><div class='kpi-label'>Equipos Diferentes</div><div class='kpi-value' style='color:#4ade80;'>{equipos_unicos}</div></div>", unsafe_allow_html=True)
- 
+
         areas_atendidas = df_mantenimiento[col_area].nunique() if col_area else 0
         col3.markdown(f"<div class='kpi-card'><div class='kpi-label'>Áreas Atendidas</div><div class='kpi-value' style='color:#38bdf8;'>{areas_atendidas}</div></div>", unsafe_allow_html=True)
- 
+
         pct_optimo = calcular_pct_optimo(df_mantenimiento)
         color_optimo = "#4ade80" if pct_optimo >= 95 else "#f59e0b" if pct_optimo >= 80 else "#ef4444"
         col4.markdown(f"<div class='kpi-card'><div class='kpi-label'>Equipos Óptimos</div><div class='kpi-value' style='color:{color_optimo};'>{pct_optimo}%</div></div>", unsafe_allow_html=True)
- 
+
         st.write("---")
- 
+
+        # --- ALERTAS DE PRÓXIMO MANTENIMIENTO ---
+        col_proximo = next((c for c in df_mantenimiento_alertas.columns if 'PROXIMO' in c or 'PRÓXIMO' in c), None)
+        if col_proximo and col_area:
+            df_prox = df_mantenimiento_alertas.copy()
+            df_prox['PROXIMO_CLEAN'] = pd.to_datetime(df_prox[col_proximo], errors='coerce')
+            df_prox = df_prox.dropna(subset=['PROXIMO_CLEAN'])
+
+            if not df_prox.empty:
+                # Se toma la fecha más próxima por área/almacén (la más urgente de sus equipos)
+                resumen_prox = df_prox.groupby(col_area)['PROXIMO_CLEAN'].min().reset_index()
+                resumen_prox.columns = ['Área', 'Proxima']
+                resumen_prox['Dias'] = (resumen_prox['Proxima'] - pd.Timestamp(hoy)).dt.days
+                resumen_prox = resumen_prox.sort_values('Dias')
+
+                def clasificar_alerta(dias):
+                    if dias < 0:
+                        return "#ef4444", "🔴 Vencido"
+                    elif dias <= 15:
+                        return "#f59e0b", "🟠 Próximo (≤15 días)"
+                    elif dias <= 30:
+                        return "#facc15", "🟡 Próximo (≤30 días)"
+                    else:
+                        return "#4ade80", "🟢 Al día"
+
+                n_vencidos = len(resumen_prox[resumen_prox['Dias'] < 0])
+                n_15 = len(resumen_prox[(resumen_prox['Dias'] >= 0) & (resumen_prox['Dias'] <= 15)])
+                n_30 = len(resumen_prox[(resumen_prox['Dias'] > 15) & (resumen_prox['Dias'] <= 30)])
+
+                st.markdown("### 🔔 Alertas de Próximo Mantenimiento por Área/Almacén")
+                st.caption("Se muestra la fecha de próximo mantenimiento más cercana registrada en cada área o almacén.")
+                a1, a2, a3 = st.columns(3)
+                a1.markdown(f"<div class='kpi-card'><div class='kpi-label'>🔴 Vencidos</div><div class='kpi-value' style='color:#ef4444;'>{n_vencidos}</div></div>", unsafe_allow_html=True)
+                a2.markdown(f"<div class='kpi-card'><div class='kpi-label'>🟠 Próximos ≤ 15 días</div><div class='kpi-value' style='color:#f59e0b;'>{n_15}</div></div>", unsafe_allow_html=True)
+                a3.markdown(f"<div class='kpi-card'><div class='kpi-label'>🟡 Próximos ≤ 30 días</div><div class='kpi-value' style='color:#facc15;'>{n_30}</div></div>", unsafe_allow_html=True)
+
+                # Solo se destacan como tarjetas las áreas vencidas o próximas (≤30 días); el resto queda "al día"
+                alertas_relevantes = resumen_prox[resumen_prox['Dias'] <= 30].to_dict('records')
+                if alertas_relevantes:
+                    cols_por_fila_alerta = 4
+                    for i in range(0, len(alertas_relevantes), cols_por_fila_alerta):
+                        fila = st.columns(cols_por_fila_alerta)
+                        for j, item in enumerate(alertas_relevantes[i:i + cols_por_fila_alerta]):
+                            color, etiqueta = clasificar_alerta(item['Dias'])
+                            dias_txt = f"En {item['Dias']} días" if item['Dias'] >= 0 else f"Vencido hace {abs(item['Dias'])} días"
+                            fila[j].markdown(f"""
+                                <div class='kpi-card' style='border-left: 4px solid {color};'>
+                                    <div class='kpi-label'>{item['Área']}</div>
+                                    <div style='color:{color}; font-size:13px; font-weight:bold;'>{etiqueta}</div>
+                                    <div style='color:#94a3b8; font-size:12px;'>{item['Proxima'].strftime('%d/%m/%Y')} · {dias_txt}</div>
+                                </div>
+                            """, unsafe_allow_html=True)
+                else:
+                    st.success("🎉 Ninguna área o almacén tiene mantenimientos vencidos o próximos en los siguientes 30 días.")
+
+                with st.expander("Ver estado de todas las áreas/almacenes"):
+                    tabla_prox = resumen_prox.copy()
+                    tabla_prox['Estado'] = tabla_prox['Dias'].apply(lambda d: clasificar_alerta(d)[1])
+                    tabla_prox['Proxima'] = tabla_prox['Proxima'].dt.strftime('%d/%m/%Y')
+                    tabla_prox = tabla_prox.rename(columns={'Proxima': 'Próximo Mantenimiento', 'Dias': 'Días Restantes'})
+                    st.dataframe(tabla_prox[['Área', 'Próximo Mantenimiento', 'Días Restantes', 'Estado']], use_container_width=True, hide_index=True)
+
+                st.write("---")
+
         # --- TARJETAS POR ÁREA ---
         if col_area and not df_mantenimiento[col_area].isnull().all():
             st.markdown("### 🏢 Resumen por Área / Departamento")
@@ -390,7 +505,7 @@ with tab_dashboard:
                     "pct_optimo": pct, "ultima_fecha": ultima_fecha_str
                 })
             areas_resumen = sorted(areas_resumen, key=lambda x: x["total"], reverse=True)
- 
+
             cols_por_fila = 4
             for i in range(0, len(areas_resumen), cols_por_fila):
                 fila = st.columns(cols_por_fila)
@@ -405,11 +520,11 @@ with tab_dashboard:
                         </div>
                     """, unsafe_allow_html=True)
             st.write("---")
- 
+
         # --- GRÁFICOS ---
         st.markdown("### 📊 Análisis Visual")
         g_col1, g_col2 = st.columns(2)
- 
+
         with g_col1:
             if col_area and not df_mantenimiento[col_area].isnull().all():
                 conteo_area = df_mantenimiento[col_area].value_counts().reset_index()
@@ -418,7 +533,7 @@ with tab_dashboard:
                                    color='Mantenimientos', color_continuous_scale='Blues')
                 fig_area.update_layout(showlegend=False, height=350)
                 st.plotly_chart(fig_area, use_container_width=True)
- 
+
         with g_col2:
             if col_estado and not df_mantenimiento[col_estado].isnull().all():
                 conteo_estado = df_mantenimiento[col_estado].value_counts().reset_index()
@@ -429,9 +544,9 @@ with tab_dashboard:
                                      color='Estado', color_discrete_map=colores_estado)
                 fig_estado.update_layout(height=350)
                 st.plotly_chart(fig_estado, use_container_width=True)
- 
+
         g_col3, g_col4 = st.columns(2)
- 
+
         with g_col3:
             # Ranking de áreas con más incidencias (no-óptimo)
             if col_area and col_estado and not df_mantenimiento[col_area].isnull().all():
@@ -450,7 +565,7 @@ with tab_dashboard:
                     st.plotly_chart(fig_ranking, use_container_width=True)
                 else:
                     st.info("🎉 No hay áreas con incidencias registradas en el rango seleccionado.")
- 
+
         with g_col4:
             # Hallazgos más frecuentes (a partir del multiselect de condiciones iniciales)
             if col_condiciones and not df_mantenimiento[col_condiciones].isnull().all():
@@ -464,7 +579,7 @@ with tab_dashboard:
                                             color='Frecuencia', color_continuous_scale='Purples')
                     fig_hallazgos.update_layout(showlegend=False, height=350, yaxis={'categoryorder': 'total ascending'})
                     st.plotly_chart(fig_hallazgos, use_container_width=True)
- 
+
         # Línea de tiempo mensual
         if 'FECHA_CLEAN' in df_mantenimiento.columns and df_mantenimiento['FECHA_CLEAN'].notna().any():
             df_tiempo = df_mantenimiento.dropna(subset=['FECHA_CLEAN']).copy()
@@ -474,7 +589,7 @@ with tab_dashboard:
                                   title="Evolución Mensual de Mantenimientos")
             fig_tiempo.update_layout(height=300)
             st.plotly_chart(fig_tiempo, use_container_width=True)
- 
+
         # Equipos con más intervenciones (recurrentes)
         if col_equipo and not df_mantenimiento[col_equipo].isnull().all():
             conteo_equipo = df_mantenimiento[col_equipo].value_counts().reset_index()
@@ -484,14 +599,14 @@ with tab_dashboard:
                 st.markdown("### 🔁 Equipos con Más Intervenciones")
                 st.caption("Equipos que han requerido más de un mantenimiento en el rango seleccionado — posibles candidatos a reemplazo.")
                 st.dataframe(recurrentes.head(10), use_container_width=True, hide_index=True)
- 
+
         st.write("---")
         st.markdown("### 📅 Registros Más Recientes")
         st.dataframe(df_mantenimiento.drop(columns=['FECHA_CLEAN'], errors='ignore').head(10), use_container_width=True)
     else:
         if not msj_error:
             st.info("No hay registros en la hoja de cálculo todavía.")
- 
+
 # --- PESTAÑA 3: DATOS COMPLETOS ---
 with tab_datos:
     st.subheader("Tabla Completa de Mantenimientos")
@@ -514,7 +629,7 @@ with tab_datos:
         st.dataframe(df_mantenimiento.drop(columns=['FECHA_CLEAN'], errors='ignore'), use_container_width=True, height=500)
     else:
         st.info("No hay registros para mostrar.")
- 
+
 # --- PESTAÑA 4: HISTORIAL DE FIRMAS ---
 with tab_firmas:
     st.subheader("📄 Historial de Actas con Firma Verificada")
@@ -525,14 +640,14 @@ with tab_firmas:
         col_equipo_col = next((c for c in df_mantenimiento.columns if 'PLACAS' in c or 'PLACA' in c), None)
         col_usuario_col = next((c for c in df_mantenimiento.columns if 'USUARIO' in c), None)
         col_fecha_col = next((c for c in df_mantenimiento.columns if 'FECHA_MANTENIMIENTO' in c or 'FECHA' in c), None)
- 
+
         # Búsqueda y paginación para no saturar la vista con muchos registros
         col_busq, col_pag = st.columns([2, 1])
         with col_busq:
             texto_busqueda = st.text_input("🔍 Buscar por placa o usuario:", "")
         with col_pag:
             registros_por_pagina = st.selectbox("Registros por página:", [10, 25, 50], index=0)
- 
+
         df_firmas = df_mantenimiento.copy()
         if texto_busqueda:
             mascara_busqueda = pd.Series(False, index=df_firmas.index)
@@ -541,14 +656,14 @@ with tab_firmas:
             if col_usuario_col:
                 mascara_busqueda |= df_firmas[col_usuario_col].astype(str).str.contains(texto_busqueda, case=False, na=False)
             df_firmas = df_firmas[mascara_busqueda]
- 
+
         total_registros = len(df_firmas)
         total_paginas = max(1, (total_registros - 1) // registros_por_pagina + 1)
         pagina = st.number_input("Página", min_value=1, max_value=total_paginas, value=1, step=1)
         inicio = (pagina - 1) * registros_por_pagina
         fin = inicio + registros_por_pagina
         st.caption(f"Mostrando {min(inicio + 1, total_registros)}–{min(fin, total_registros)} de {total_registros} registros")
- 
+
         for idx, row in df_firmas.iloc[inicio:fin].iterrows():
             placa_val = row[col_equipo_col] if col_equipo_col and pd.notna(row[col_equipo_col]) else "S/N"
             usuario_val = row[col_usuario_col] if col_usuario_col and pd.notna(row[col_usuario_col]) else "Desconocido"
@@ -556,7 +671,8 @@ with tab_firmas:
             
             with st.expander(f"📌 Acta Equipo Placas: {placa_val} — Responsable: {usuario_val} ({fecha_val})"):
                 cols_det1, cols_det2 = st.columns([2, 1])
-                
+
+                campos_pdf = []
                 with cols_det1:
                     st.markdown("#### Detalles del Mantenimiento")
                     for col in df_mantenimiento.columns:
@@ -564,7 +680,9 @@ with tab_firmas:
                             val_celda = row[col]
                             if pd.notna(val_celda) and str(val_celda).strip() != "":
                                 st.markdown(f"**{col.replace('_', ' ').title()}:** {val_celda}")
-                
+                                campos_pdf.append((col.replace('_', ' ').title(), val_celda))
+
+                imagen_firma_bytes = None
                 with cols_det2:
                     st.markdown("#### Firma de Conformidad")
                     if col_firma_col and pd.notna(row[col_firma_col]):
@@ -573,8 +691,8 @@ with tab_firmas:
                             try:
                                 if "," in firma_base64:
                                     firma_base64 = firma_base64.split(",")[1]
-                                image_bytes = base64.b64decode(firma_base64)
-                                image = Image.open(io.BytesIO(image_bytes))
+                                imagen_firma_bytes = base64.b64decode(firma_base64)
+                                image = Image.open(io.BytesIO(imagen_firma_bytes))
                                 st.image(image, width=280)
                             except Exception as e:
                                 st.warning("No se pudo procesar la imagen de la firma.")
@@ -582,7 +700,21 @@ with tab_firmas:
                             st.info("Sin firma registrada en este campo.")
                     else:
                         st.info("No hay datos de firma para este registro.")
+
+                st.write("---")
+                if REPORTLAB_DISPONIBLE:
+                    pdf_bytes = generar_pdf_acta(
+                        campos_pdf, imagen_firma_bytes,
+                        titulo_acta=f"Equipo: {placa_val} · Responsable: {usuario_val} · Fecha: {fecha_val}"
+                    )
+                    nombre_archivo = f"acta_{str(placa_val).replace(' ', '_')}_{str(fecha_val).replace('/', '-')}.pdf"
+                    st.download_button(
+                        "⬇️ Descargar Acta en PDF", data=pdf_bytes, file_name=nombre_archivo,
+                        mime="application/pdf", key=f"pdf_{idx}"
+                    )
+                else:
+                    st.warning("⚠️ Agrega `reportlab` a tu `requirements.txt` en GitHub para poder descargar el acta en PDF.")
     else:
         st.info("No hay registros disponibles para mostrar en el historial.")
- 
+
 st.markdown("<div class='footer'>SGA v2.0 · Sistemas e Infraestructura · Kenzo Jeans SAS</div>", unsafe_allow_html=True)
