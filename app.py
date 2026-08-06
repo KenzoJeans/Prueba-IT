@@ -15,7 +15,6 @@ from PIL import Image
 st.set_page_config(page_title="Mantenimiento IT | Kenzo Jeans", layout="wide", page_icon="💻")
 
 # ==============================================================================
-# AQUÍ PEGAREMOS LA URL DEL WEBHOOK DE GOOGLE APPS SCRIPT EN EL SIGUIENTE PASO
 WEBHOOK_URL = "https://script.google.com/macros/s/AKfycbyDniiOlytcSqjvACWjoaJpSb5kXodI_qOcvT0gHlv7_rqW_DlFQg2RCDSD8UsLojyZ/exec" 
 # ==============================================================================
 
@@ -218,7 +217,6 @@ with tab_form:
             f_analista = st.text_input("Especifique el nombre del Analista:")
             
     with col_val2:
-        # Se sugiere un próximo mantenimiento en 6 meses por defecto
         f_proximo = st.date_input("Próximo mantenimiento recomendado para:", datetime.today() + timedelta(days=180))
 
     st.write("---")
@@ -240,7 +238,6 @@ with tab_form:
         else:
             firma_b64 = convertir_imagen_a_base64(firma_nueva.image_data)
             
-            # Recopilar todos los datos en un diccionario unificado
             datos_mantenimiento = {
                 "fecha_mantenimiento": f_fecha.strftime("%Y-%m-%d"),
                 "usuario": f_usuario.strip().upper(),
@@ -271,20 +268,19 @@ with tab_form:
             if WEBHOOK_URL == "":
                 st.info("ℹ️ El formulario funciona perfectamente. En el siguiente paso conectaremos la base de datos para registrar esto.")
             else:
-                    try:
-                        respuesta = requests.post(WEBHOOK_URL, json=datos_mantenimiento)
-                        
-                        # --- AQUÍ ESTÁ EL CAMBIO ---
-                        st.write(f"Código HTTP: {respuesta.status_code}")
-                        st.write(f"Respuesta cruda de Google: {respuesta.text}")
-                        
-                        if respuesta.status_code == 200 and "success" in respuesta.text:
-                            st.success(f"✅ ¡El acta del equipo {f_placas} se ha subido correctamente!")
-                            st.balloons()
-                        else:
-                            st.error(f"⚠️ Google rechazó el registro. Respuesta: {respuesta.text}")
-                    except Exception as e:
-                        st.error(f"Error de conexión: {str(e)}")
+                try:
+                    respuesta = requests.post(WEBHOOK_URL, json=datos_mantenimiento)
+                    
+                    st.write(f"Código HTTP: {respuesta.status_code}")
+                    st.write(f"Respuesta cruda de Google: {respuesta.text}")
+                    
+                    if respuesta.status_code == 200 and "success" in respuesta.text:
+                        st.success(f"✅ ¡El acta del equipo {f_placas} se ha subido correctamente!")
+                        st.balloons()
+                    else:
+                        st.error(f"⚠️ Google rechazó el registro. Respuesta: {respuesta.text}")
+                except Exception as e:
+                    st.error(f"Error de conexión: {str(e)}")
 
 # --- PESTAÑA 2: DASHBOARD ---
 with tab_dashboard:
@@ -315,7 +311,7 @@ with tab_dashboard:
 
         st.write("---")
         st.markdown("### 📅 Registros Más Recientes")
-        st.dataframe(df_mantenimiento.drop(columns=['FECHA_CLEAN', 'DISPLAY_NAME'], errors='ignore').head(10), use_container_width=True)
+        st.dataframe(df_mantenimiento.drop(columns=['FECHA_CLEAN'], errors='ignore').head(10), use_container_width=True)
     else:
         if not msj_error:
             st.info("No hay registros en la hoja de cálculo todavía.")
@@ -345,7 +341,49 @@ with tab_datos:
 
 # --- PESTAÑA 4: HISTORIAL DE FIRMAS ---
 with tab_firmas:
-    st.subheader("📄 Registros Consolidados con Firma")
-    st.info("Esta sección se alimentará automáticamente de los datos de la nueva estructura una vez conectemos el Webhook.")
+    st.subheader("📄 Historial de Actas con Firma Verificada")
+    st.info("Selecciona o despliega cualquier registro para consultar sus detalles completos y la firma de conformidad.")
+    
+    if not df_mantenimiento.empty:
+        col_firma_col = next((c for c in df_mantenimiento.columns if 'FIRMA' in c), None)
+        col_equipo_col = next((c for c in df_mantenimiento.columns if 'PLACAS' in c or 'PLACA' in c), None)
+        col_usuario_col = next((c for c in df_mantenimiento.columns if 'USUARIO' in c), None)
+        col_fecha_col = next((c for c in df_mantenimiento.columns if 'FECHA_MANTENIMIENTO' in c or 'FECHA' in c), None)
+        
+        for idx, row in df_mantenimiento.iterrows():
+            placa_val = row[col_equipo_col] if col_equipo_col and pd.notna(row[col_equipo_col]) else "S/N"
+            usuario_val = row[col_usuario_col] if col_usuario_col and pd.notna(row[col_usuario_col]) else "Desconocido"
+            fecha_val = row[col_fecha_col] if col_fecha_col and pd.notna(row[col_fecha_col]) else "Fecha no registrada"
+            
+            with st.expander(f"📌 Acta Equipo Placas: {placa_val} — Responsable: {usuario_val} ({fecha_val})"):
+                cols_det1, cols_det2 = st.columns([2, 1])
+                
+                with cols_det1:
+                    st.markdown("#### Detalles del Mantenimiento")
+                    for col in df_mantenimiento.columns:
+                        if col not in ['FECHA_CLEAN', col_firma_col]:
+                            val_celda = row[col]
+                            if pd.notna(val_celda) and str(val_celda).strip() != "":
+                                st.markdown(f"**{col.replace('_', ' ').title()}:** {val_celda}")
+                
+                with cols_det2:
+                    st.markdown("#### Firma de Conformidad")
+                    if col_firma_col and pd.notna(row[col_firma_col]):
+                        firma_base64 = str(row[col_firma_col]).strip()
+                        if firma_base64 != "":
+                            try:
+                                if "," in firma_base64:
+                                    firma_base64 = firma_base64.split(",")[1]
+                                image_bytes = base64.b64decode(firma_base64)
+                                image = Image.open(io.BytesIO(image_bytes))
+                                st.image(image, width=280)
+                            except Exception as e:
+                                st.warning("No se pudo procesar la imagen de la firma.")
+                        else:
+                            st.info("Sin firma registrada en este campo.")
+                    else:
+                        st.info("No hay datos de firma para este registro.")
+    else:
+        st.info("No hay registros disponibles para mostrar en el historial.")
 
 st.markdown("<div class='footer'>SGA v2.0 · Sistemas e Infraestructura · Kenzo Jeans SAS</div>", unsafe_allow_html=True)
