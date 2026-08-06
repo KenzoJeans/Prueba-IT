@@ -24,6 +24,49 @@ except Exception:
     WEBHOOK_URL = "https://script.google.com/macros/s/AKfycbyDniiOlytcSqjvACWjoaJpSb5kXodI_qOcvT0gHlv7_rqW_DlFQg2RCDSD8UsLojyZ/exec"
 # ==============================================================================
  
+# ==============================================================================
+# LISTAS CERRADAS DE ÁREAS/ALMACENES — editar aquí si se agrega, quita o renombra
+# una sede. El operario del formulario NO puede escribir nombres libres: solo
+# selecciona de estas listas, para evitar nombres duplicados o mal escritos.
+# ==============================================================================
+AREAS_ALMACENES = sorted([
+    "SALITRE PLAZA", "RESTREPO 1", "FONTIBÓN", "QUIRIGUA", "TUNAL",
+    "PLAZA DE LAS AMÉRICAS 1", "CENTRO SUBA", "SANTA HELENITA", "KENNEDY",
+    "CHAPINERO", "ESTRADA", "CENTRO 1", "RESTREPO 2", "OUTLET ZONA", "PORTAL 80",
+    "UNICENTRO OCCIDENTE", "YOPAL", "TINTAL PLAZA", "PLAZA IMPERIAL",
+    "CENTRO COMERCIAL SANTAFÉ", "CENTRO MAYOR", "TITÁN PLAZA", "DIVER PLAZA",
+    "ZIPAQUIRÁ", "MERCURIO", "FACTORY", "MOSQUERA", "HAYUELOS",
+    "PLAZA DE LAS AMÉRICAS 2", "FUNZA MI CENTRO", "GIRARDOT", "IPIALES",
+    "CALLE 13 ZONA", "POPAYÁN", "PLAZA CENTRAL", "BOSA PIAMONTE CALLE",
+    "TOBERÍN", "VENTURA TERREROS", "GRAN PLAZA ENSUEÑO", "CAJICÁ",
+    "FACATATIVÁ", "TUNJA", "GRAN PLAZA BOSA", "PASEO VILLA DEL RÍO",
+    "NUESTRO BOGOTÁ", "ATRÉVETE FONTIBÓN", "ATRÉVETE SEVILLANA", "MADRID",
+    "CARRERA 62", "OUTLET CENTER", "FUSAGASUGÁ", "ALTA VISTA",
+    "OUTLET CARRERA 62", "RIONEGRO – ANTIOQUIA", "OUTLET FLORESTA", "ESPINAL",
+    "FUNZA CENTRO", "BODEGA CRA 62",
+])
+ 
+AREAS_ADMINISTRATIVOS = sorted([
+    "SECRETARIA (Gerencia / Presidencia)", "ENFERMERÍA",
+    "PORTERIA SEGURIDAD – IMEGA", "PORTERIA SEGURIDAD - CARRERA 62",
+    "ABOGADA LABORAL", "DISEÑO KENZO", "BORDADO INDUSTRIAL", "TALENTO HUMANO",
+    "NÓMINA – TH", "TESORERÍA", "CONTABILIDAD", "PLANTAS PRODUCCIÓN",
+    "TIENDA ONLINE", "RETIROS - LIQUIDACIONES RH", "PLANEACIÓN",
+    "PRODUCTO TERMINADO", "INSUMOS", "COMPRAS", "BODEGA DE QUÍMICOS",
+    "SELECCIÓN Y CONTRATACION", "BIENESTAR", "AREA COMERCIAL", "INVENTARIOS",
+    "PRODUCCION", "VALIDACIÓN", "SELECCIÓN Y RECLUTAMIENTO",
+    "DIRECTOR FINANCIERO", "TIENDA ON LINE - (Servicio al Cliente)",
+    "BITÁCORAS - INCAPACIDADES – RH", "TESORERÍA (Pagos)",
+    "CCM - MONITOREO DE ALARMAS", "LÍDER – SISTEMAS",
+    "MESA DE AYUDA – SISTEMAS", "SG – SST", "COMUNICACIONES Y MARKETING",
+    "CCM 2 (MONITOREO DE ALARMAS)", "COSTOS DISEÑO",
+    "SERVICIO AL CLIENTE EXTERNO-PRE VENTA", "CORTE", "CÓDIGOS – IMPORTADOS",
+    "CENTRAL DE OPERACIONES - POST VENTA", "REVISOR FISCAL",
+    "ANALISTA DE PRODUCTO – PLANEACION", "COSTOS CONTABILIDAD",
+    "INGENIERÍA – SATÉLITE", "AMBIENTAL",
+])
+# ==============================================================================
+ 
 # Estilos CSS
 st.markdown("""
     <style>
@@ -114,12 +157,7 @@ if col_area and not df_mantenimiento[col_area].isnull().all():
         df_mantenimiento = df_mantenimiento[df_mantenimiento[col_area].isin(area_filtro)]
  
 # Lista maestra de áreas para el formulario: se toma de TODO el histórico (sin filtro de fecha)
-# para que el desplegable siempre incluya todas las áreas que alguna vez se hayan registrado.
-if col_area and not df_mantenimiento_full[col_area].isnull().all():
-    areas_maestras = sorted(set(a.strip() for a in df_mantenimiento_full[col_area].dropna().astype(str) if a.strip() != ""))
-else:
-    areas_maestras = []
- 
+# para que el desplegable del filtro del sidebar siempre incluya todas las áreas registradas.
 st.sidebar.markdown("---")
  
 # 4. INTERFAZ DE PESTAÑAS
@@ -143,17 +181,15 @@ with tab_form:
         f_usuario = st.text_input("Usuario responsable*")
         f_cargo = st.text_input("Cargo")
  
-        opciones_area = areas_maestras + ["+ Agregar nueva área"]
-        seleccion_area = st.selectbox(
+        tipo_area = st.radio("Tipo de área*", ["🏬 Almacén", "🏢 Administrativo"], horizontal=True)
+        lista_areas = AREAS_ALMACENES if tipo_area == "🏬 Almacén" else AREAS_ADMINISTRATIVOS
+        placeholder_area = "Busca el almacén..." if tipo_area == "🏬 Almacén" else "Busca el área administrativa..."
+        f_area = st.selectbox(
             "Área/Departamento*",
-            opciones_area if opciones_area else ["+ Agregar nueva área"],
+            lista_areas,
             index=None,
-            placeholder="Busca o selecciona un área..."
+            placeholder=placeholder_area
         )
-        if seleccion_area == "+ Agregar nueva área" or seleccion_area is None:
-            f_area = st.text_input("Escribe el nombre de la nueva área (usa un nombre consistente, ej. 'BODEGA NORTE'):")
-        else:
-            f_area = seleccion_area
     with col2:
         f_placas = st.text_input("Placas*")
         f_marca = st.text_input("Marca/Modelo")
