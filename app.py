@@ -43,6 +43,19 @@ def cargar_datos_mantenimiento():
         # Normalizar nombres de columnas a mayúsculas y sin espacios innecesarios
         df.columns = df.columns.str.strip().str.upper()
 
+        # --- SOLUCIÓN: Desambiguar columnas duplicadas ---
+        nuevas_columnas = []
+        vistas = {}
+        for col in df.columns:
+            if col not in vistas:
+                vistas[col] = 1
+                nuevas_columnas.append(col)
+            else:
+                nuevas_columnas.append(f"{col}_{vistas[col]}")
+                vistas[col] += 1
+        df.columns = nuevas_columnas
+        # --------------------------------------------------
+
         # Limpieza y conversión de fechas
         cols_fecha = [c for c in df.columns if 'FECHA' in c]
         if cols_fecha:
@@ -53,8 +66,6 @@ def cargar_datos_mantenimiento():
         return df, None
     except Exception as e:
         return pd.DataFrame(), f"Error al conectar con la hoja: {str(e)}"
-
-df_mantenimiento_full, msj_error = cargar_datos_mantenimiento()
 
 # 3. FUNCIONES PARA GESTIÓN DE FIRMAS
 @st.cache_data(ttl=60)
