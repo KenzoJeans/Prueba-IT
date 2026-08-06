@@ -113,6 +113,13 @@ if col_area and not df_mantenimiento[col_area].isnull().all():
     if area_filtro:
         df_mantenimiento = df_mantenimiento[df_mantenimiento[col_area].isin(area_filtro)]
  
+# Lista maestra de áreas para el formulario: se toma de TODO el histórico (sin filtro de fecha)
+# para que el desplegable siempre incluya todas las áreas que alguna vez se hayan registrado.
+if col_area and not df_mantenimiento_full[col_area].isnull().all():
+    areas_maestras = sorted(set(a.strip() for a in df_mantenimiento_full[col_area].dropna().astype(str) if a.strip() != ""))
+else:
+    areas_maestras = []
+ 
 st.sidebar.markdown("---")
  
 # 4. INTERFAZ DE PESTAÑAS
@@ -135,7 +142,18 @@ with tab_form:
         f_fecha = st.date_input("Fecha del mantenimiento", datetime.today())
         f_usuario = st.text_input("Usuario responsable*")
         f_cargo = st.text_input("Cargo")
-        f_area = st.text_input("Área/Departamento")
+ 
+        opciones_area = areas_maestras + ["+ Agregar nueva área"]
+        seleccion_area = st.selectbox(
+            "Área/Departamento*",
+            opciones_area if opciones_area else ["+ Agregar nueva área"],
+            index=None,
+            placeholder="Busca o selecciona un área..."
+        )
+        if seleccion_area == "+ Agregar nueva área" or seleccion_area is None:
+            f_area = st.text_input("Escribe el nombre de la nueva área (usa un nombre consistente, ej. 'BODEGA NORTE'):")
+        else:
+            f_area = seleccion_area
     with col2:
         f_placas = st.text_input("Placas*")
         f_marca = st.text_input("Marca/Modelo")
@@ -237,8 +255,8 @@ with tab_form:
     )
     
     if st.button("💾 Guardar y Subir Mantenimiento", type="primary"):
-        if not f_placas or not f_usuario or not f_analista:
-            st.error("⚠️ Los campos de Placa, Usuario Responsable y Analista son obligatorios.")
+        if not f_placas or not f_usuario or not f_analista or not f_area:
+            st.error("⚠️ Los campos de Placa, Usuario Responsable, Área/Departamento y Analista son obligatorios.")
         elif firma_nueva.image_data is None:
             st.warning("⚠️ Debes proporcionar una firma en el lienzo antes de guardar.")
         else:
