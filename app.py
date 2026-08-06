@@ -16,7 +16,7 @@ st.set_page_config(page_title="Mantenimiento IT | Kenzo Jeans", layout="wide", p
 
 # ==============================================================================
 # AQUÍ PEGAREMOS LA URL DEL WEBHOOK DE GOOGLE APPS SCRIPT EN EL SIGUIENTE PASO
-WEBHOOK_URL = "https://script.google.com/macros/s/AKfycbyus3bFzutUq7rA_NBW_TUZCxAiOamQrHQoNMmn0U1W7Fun_X2xP2fy3si6ov0jZOwL/exec" 
+WEBHOOK_URL = "https://script.google.com/macros/s/AKfycbx7Fr087dY6pNLtuNEIWQaJKc06U1jO0r1V7uOiR2ZeaXIppC9eXgv51MAZvaea3Zhh/exec" 
 # ==============================================================================
 
 # Estilos CSS
