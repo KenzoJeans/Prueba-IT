@@ -37,7 +37,7 @@ st.markdown("Dashboard de indicadores, registro y validación de actas de manten
 @st.cache_data(ttl=60)
 def cargar_datos_mantenimiento():
     ID_HOJA = "1hbXmOgYGoJ1vouSodHnh3nNB9kQQ6ST9EV8lIzd9-m4"
-    nombre_encoded = urllib.parse.quote("Respuestas de formulario 1")
+    nombre_encoded = urllib.parse.quote("Form_Responses")
     url = f"https://docs.google.com/spreadsheets/d/{ID_HOJA}/gviz/tq?tqx=out:csv&sheet={nombre_encoded}"
 
     try:
