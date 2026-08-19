@@ -429,10 +429,22 @@ with tab_dashboard:
 
         # --- ALERTAS DE PRÓXIMO MANTENIMIENTO ---
         col_proximo = next((c for c in df_mantenimiento_alertas.columns if 'PROXIMO' in c or 'PRÓXIMO' in c), None)
-        if col_proximo and col_area:
+        col_equipo_alerta = next((c for c in df_mantenimiento_alertas.columns if 'PLACA' in c), None)
+
+        if col_proximo and col_area and col_equipo_alerta:
             df_prox = df_mantenimiento_alertas.copy()
             df_prox['PROXIMO_CLEAN'] = pd.to_datetime(df_prox[col_proximo], errors='coerce')
-            df_prox = df_prox.dropna(subset=['PROXIMO_CLEAN'])
+            df_prox = df_prox.dropna(subset=['PROXIMO_CLEAN', 'FECHA_CLEAN'])
+
+            if not df_prox.empty:
+                # 1. Ordenar cronológicamente por la fecha en que se hizo el mantenimiento
+                df_prox = df_prox.sort_values(by='FECHA_CLEAN')
+                
+                # 2. Eliminar duplicados por PLACA, conservando solo el 'last' (el más reciente)
+                df_prox = df_prox.drop_duplicates(subset=[col_equipo_alerta], keep='last')
+                
+                # 3. Buscar la fecha más próxima (min) por área basándose solo en el estado actual
+                resumen_prox = df_prox.groupby(col_area)['PROXIMO_CLEAN'].min().reset_index()
 
             if not df_prox.empty:
                 # Se toma la fecha más próxima por área/almacén (la más urgente de sus equipos)
