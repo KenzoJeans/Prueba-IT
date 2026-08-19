@@ -437,18 +437,23 @@ with tab_dashboard:
             df_prox = df_prox.dropna(subset=['PROXIMO_CLEAN', 'FECHA_CLEAN'])
 
             if not df_prox.empty:
-                # 1. Ordenar cronológicamente por la fecha en que se hizo el mantenimiento
-                df_prox = df_prox.sort_values(by='FECHA_CLEAN')
-                
-                # 2. Eliminar duplicados por PLACA, conservando solo el 'last' (el más reciente)
-                df_prox = df_prox.drop_duplicates(subset=[col_equipo_alerta], keep='last')
-                
-                # 3. Buscar la fecha más próxima (min) por área basándose solo en el estado actual
-                resumen_prox = df_prox.groupby(col_area)['PROXIMO_CLEAN'].min().reset_index()
+                # IMPORTANTE: "PLACAS" es texto libre y se escribe distinto en cada visita
+                # (distintos equipos, distinto orden/formato), por lo que casi nunca coincide
+                # entre una visita y otra. Deduplicar por placa NO sirve para detectar
+                # "ya hubo un mantenimiento reciente en esta área": deja vivas para siempre
+                # filas viejas con fechas vencidas que arrastran el cálculo del área hacia el
+                # pasado aunque exista una visita reciente.
+                #
+                # En su lugar: nos quedamos solo con la(s) fila(s) de la ÚLTIMA VISITA
+                # (fecha de mantenimiento más reciente) por área, y usamos su próximo
+                # mantenimiento. Así, una visita nueva siempre "reemplaza" a las anteriores
+                # para efectos de la alerta, sin importar cómo se haya escrito la placa.
+                ultima_fecha_area = df_prox.groupby(col_area)['FECHA_CLEAN'].transform('max')
+                df_ultima_visita = df_prox[df_prox['FECHA_CLEAN'] == ultima_fecha_area]
 
-            if not df_prox.empty:
-                # Se toma la fecha más próxima por área/almacén (la más urgente de sus equipos)
-                resumen_prox = df_prox.groupby(col_area)['PROXIMO_CLEAN'].min().reset_index()
+                # Si en la última visita se registraron varios equipos (varias filas el mismo
+                # día), se toma el próximo mantenimiento más urgente entre ellos.
+                resumen_prox = df_ultima_visita.groupby(col_area)['PROXIMO_CLEAN'].min().reset_index()
                 resumen_prox.columns = ['Área', 'Proxima']
                 resumen_prox['Dias'] = (resumen_prox['Proxima'] - pd.Timestamp(hoy)).dt.days
                 resumen_prox = resumen_prox.sort_values('Dias')
