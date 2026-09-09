@@ -134,6 +134,21 @@ def convertir_imagen_a_base64(image_data):
     img.save(buffered, format="PNG")
     return base64.b64encode(buffered.getvalue()).decode()
 
+
+def convertir_archivo_subido_a_base64(archivo_subido):
+    """Convierte una foto de firma subida (JPG/PNG) a base64, mismo formato
+    que usa el canvas — así el resto del flujo (guardado, historial, PDF) no
+    necesita saber de dónde vino la firma."""
+    if archivo_subido is None:
+        return None
+    try:
+        img = Image.open(archivo_subido).convert("RGBA")
+        buffered = io.BytesIO()
+        img.save(buffered, format="PNG")
+        return base64.b64encode(buffered.getvalue()).decode()
+    except Exception:
+        return None
+
 def generar_pdf_acta(campos, imagen_firma_bytes, titulo_acta):
     """Genera un PDF de una acta de mantenimiento a partir de una lista de tuplas (campo, valor)."""
     buffer = io.BytesIO()
@@ -336,19 +351,44 @@ with tab_form:
     # FIRMA
     st.markdown("### ✍️ Firma de Conformidad")
     st.markdown("Firma del usuario responsable aceptando el equipo tras el mantenimiento.")
-    
-    firma_nueva = st_canvas(
-        stroke_width=3, stroke_color="#000000", background_color="#f8fafc",
-        height=200, width=600, drawing_mode="freedraw", key="firma_formulario",
+
+    metodo_firma = st.radio(
+        "Método de firma:",
+        ["🖊️ Dibujar en pantalla", "📷 Subir foto de la firma"],
+        horizontal=True,
+        help="Si el lienzo de dibujo llegara a fallar (por ejemplo, por una actualización de Streamlit), "
+             "usa esta opción para tomarle una foto a la firma en papel y subirla en su lugar.",
     )
-    
+
+    firma_nueva = None
+    archivo_firma = None
+
+    if metodo_firma == "🖊️ Dibujar en pantalla":
+        firma_nueva = st_canvas(
+            stroke_width=3, stroke_color="#000000", background_color="#f8fafc",
+            height=200, width=600, drawing_mode="freedraw", key="firma_formulario",
+        )
+    else:
+        archivo_firma = st.file_uploader(
+            "Sube una foto o escaneo de la firma (JPG o PNG):",
+            type=["jpg", "jpeg", "png"],
+            key="firma_archivo",
+        )
+        if archivo_firma is not None:
+            st.image(archivo_firma, caption="Vista previa de la firma", width=280)
+
     if st.button("💾 Guardar y Subir Mantenimiento", type="primary"):
         if not f_placas or not f_usuario or not f_analista or not f_area:
             st.error("⚠️ Los campos de Placa, Usuario Responsable, Área/Departamento y Analista son obligatorios.")
-        elif firma_nueva.image_data is None:
+        elif metodo_firma == "🖊️ Dibujar en pantalla" and (firma_nueva is None or firma_nueva.image_data is None):
             st.warning("⚠️ Debes proporcionar una firma en el lienzo antes de guardar.")
+        elif metodo_firma == "📷 Subir foto de la firma" and archivo_firma is None:
+            st.warning("⚠️ Debes subir una foto de la firma antes de guardar.")
         else:
-            firma_b64 = convertir_imagen_a_base64(firma_nueva.image_data)
+            if metodo_firma == "🖊️ Dibujar en pantalla":
+                firma_b64 = convertir_imagen_a_base64(firma_nueva.image_data)
+            else:
+                firma_b64 = convertir_archivo_subido_a_base64(archivo_firma)
             
             datos_mantenimiento = {
                 "fecha_mantenimiento": f_fecha.strftime("%Y-%m-%d"),
