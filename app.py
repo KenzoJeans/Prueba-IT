@@ -334,30 +334,21 @@ with tab_form:
     st.write("---")
 
     # FIRMA
-st.markdown("### ✍️ Firma de Conformidad")
-st.markdown("Firma del usuario responsable aceptando el equipo tras el mantenimiento.")
-
-firma_nueva = st_canvas(
-    stroke_width=3, stroke_color="#000000", background_color="#f8fafc",
-    height=200, width=600, drawing_mode="freedraw", key="firma_formulario",
-)
-
-# Captura segura del estado de la firma
-tiene_firma = False
-if firma_nueva is not None:
-    try:
-        if firma_nueva.image_data is not None and firma_nueva.image_data.any():
-            tiene_firma = True
-    except RuntimeError:
-        tiene_firma = False
-
-if st.button("💾 Guardar y Subir Mantenimiento", type="primary"):
-    if not f_placas or not f_usuario or not f_analista or not f_area:
-        st.error("⚠️ Los campos de Placa, Usuario Responsable, Área/Departamento y Analista son obligatorios.")
-    elif not tiene_firma:
-        st.warning("⚠️ Debes proporcionar una firma en el lienzo antes de guardar.")
-    else:
-        firma_b64 = convertir_imagen_a_base64(firma_nueva.image_data)
+    st.markdown("### ✍️ Firma de Conformidad")
+    st.markdown("Firma del usuario responsable aceptando el equipo tras el mantenimiento.")
+    
+    firma_nueva = st_canvas(
+        stroke_width=3, stroke_color="#000000", background_color="#f8fafc",
+        height=200, width=600, drawing_mode="freedraw", key="firma_formulario",
+    )
+    
+    if st.button("💾 Guardar y Subir Mantenimiento", type="primary"):
+        if not f_placas or not f_usuario or not f_analista or not f_area:
+            st.error("⚠️ Los campos de Placa, Usuario Responsable, Área/Departamento y Analista son obligatorios.")
+        elif firma_nueva.image_data is None:
+            st.warning("⚠️ Debes proporcionar una firma en el lienzo antes de guardar.")
+        else:
+            firma_b64 = convertir_imagen_a_base64(firma_nueva.image_data)
             
             datos_mantenimiento = {
                 "fecha_mantenimiento": f_fecha.strftime("%Y-%m-%d"),
