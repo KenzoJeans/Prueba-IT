@@ -774,4 +774,4 @@ with tab_firmas:
     else:
         st.info("No hay registros disponibles para mostrar en el historial.")
 
-st.markdown("<div class='footer'>SGA v2.0 · Mesa de ayuda de Soporte Informatico · Kenzo Jeans SAS</div>", unsafe_allow_html=True)
+st.markdown("<div class='footer'>SGTI v2.0 · Mesa de ayuda de Soporte Informatico · Kenzo Jeans SAS</div>", unsafe_allow_html=True)
