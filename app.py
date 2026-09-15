@@ -21,7 +21,7 @@ except ModuleNotFoundError:
     REPORTLAB_DISPONIBLE = False
 
 # 1. Configuración de la página
-st.set_page_config(page_title="Mantenimiento IT | Kenzo Jeans", layout="wide", page_icon="💻")
+st.set_page_config(page_title="Mantenimiento de Hardware y Software | Kenzo Jeans", layout="wide", page_icon="💻")
 
 # ==============================================================================
 # Preferido: define WEBHOOK_URL en .streamlit/secrets.toml como:
@@ -88,7 +88,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 st.title("💻 Gestión y Control de Mantenimiento de Equipos")
-st.markdown("Dashboard de indicadores, registro y validación de actas de mantenimiento IT.")
+st.markdown("Dashboard de indicadores, registro y validación de actas de mantenimiento de las tecnologias de la informacion.")
 
 # 2. FUNCIONES DE CARGA Y PROCESAMIENTO DE DATOS
 @st.cache_data(ttl=60)
@@ -774,4 +774,4 @@ with tab_firmas:
     else:
         st.info("No hay registros disponibles para mostrar en el historial.")
 
-st.markdown("<div class='footer'>SGA v2.0 · Mesa de ayuda de soporte · Kenzo Jeans SAS</div>", unsafe_allow_html=True)
+st.markdown("<div class='footer'>SGA v2.0 · Mesa de ayuda de Soporte Informatico · Kenzo Jeans SAS</div>", unsafe_allow_html=True)
