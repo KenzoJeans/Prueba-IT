@@ -21,7 +21,7 @@ except ModuleNotFoundError:
     REPORTLAB_DISPONIBLE = False
 
 # 1. Configuración de la página
-st.set_page_config(page_title="Mantenimiento IT | Kenzo Jeans", layout="wide", page_icon="💻")
+st.set_page_config(page_title="Mantenimiento de Hardware | Kenzo Jeans", layout="wide", page_icon="💻")
 
 # ==============================================================================
 # Preferido: define WEBHOOK_URL en .streamlit/secrets.toml como:
@@ -52,7 +52,7 @@ AREAS_ALMACENES = sorted([
     "NUESTRO BOGOTÁ", "ATRÉVETE FONTIBÓN", "ATRÉVETE SEVILLANA", "MADRID",
     "CARRERA 62", "OUTLET CENTER", "FUSAGASUGÁ", "ALTA VISTA",
     "OUTLET CARRERA 62", "RIONEGRO – ANTIOQUIA", "OUTLET FLORESTA", "ESPINAL",
-    "FUNZA CENTRO", "BODEGA CRA 62","HOTEL AGUA AZUL - MELGAR",
+    "FUNZA CENTRO", "BODEGA CRA 62", "HOTEL AGUA AZUL - MELGAR",
 ])
 
 AREAS_ADMINISTRATIVOS = sorted([
@@ -774,4 +774,4 @@ with tab_firmas:
     else:
         st.info("No hay registros disponibles para mostrar en el historial.")
 
-st.markdown("<div class='footer'>SGA v2.0 · Mesa de ayuda de soporte · Kenzo Jeans SAS</div>", unsafe_allow_html=True)
+st.markdown("<div class='footer'>SGA v2.0 · Mesa de ayuda de Soporte Informatico· Kenzo Jeans SAS</div>", unsafe_allow_html=True)
