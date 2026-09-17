@@ -1,7 +1,7 @@
 streamlit
 pandas
 plotly
-streamlit-drawable-canvas-fix
+streamlit-drawable-canvas==0.13.0
 Pillow
 openpyxl
 requests
