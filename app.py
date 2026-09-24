@@ -1,15 +1,13 @@
 import streamlit as st
 import pandas as pd
 import plotly.express as px
-from streamlit_drawable_canvas import st_canvas
 import io
 import urllib.request
 import urllib.parse
 from datetime import datetime, timedelta
 import base64
-import json
 import requests
-from PIL import Image
+from PIL import Image, ImageOps
 
 try:
     from reportlab.lib.pagesizes import letter
@@ -32,6 +30,15 @@ try:
 except Exception:
     WEBHOOK_URL = "https://script.google.com/macros/s/AKfycbyDniiOlytcSqjvACWjoaJpSb5kXodI_qOcvT0gHlv7_rqW_DlFQg2RCDSD8UsLojyZ/exec"
 # ==============================================================================
+
+# ==============================================================================
+# LÍMITE DE TAMAÑO DE LA FOTO DEL SOPORTE
+# Una celda de Google Sheets admite máximo 50.000 caracteres. Como la foto se guarda
+# en base64 dentro de la celda, se comprime hasta que quepa. Si algún día el Apps Script
+# guarda la imagen en Drive (y solo deja el enlace en la hoja), este límite se puede subir
+# para conservar mejor calidad.
+# ==============================================================================
+MAX_B64_CHARS = 45000
 
 # ==============================================================================
 # LISTAS CERRADAS DE ÁREAS/ALMACENES — editar aquí si se agrega, quita o renombra
@@ -126,30 +133,34 @@ def cargar_datos_mantenimiento():
 
 df_mantenimiento_full, msj_error = cargar_datos_mantenimiento()
 
-def convertir_imagen_a_base64(image_data):
-    if image_data is None:
-        return None
-    img = Image.fromarray(image_data.astype('uint8'))
-    buffered = io.BytesIO()
-    img.save(buffered, format="PNG")
-    return base64.b64encode(buffered.getvalue()).decode()
+# Columnas que no se deben mostrar ni exportar en las tablas: la columna con la foto en base64
+# es enorme (miles de caracteres por fila) y satura la vista, el CSV y el Excel.
+COLS_OCULTAS = ['FECHA_CLEAN'] + [c for c in df_mantenimiento_full.columns if 'FIRMA' in c]
 
 
-def convertir_archivo_subido_a_base64(archivo_subido):
-    """Convierte una foto de firma subida (JPG/PNG) a base64, mismo formato
-    que usa el canvas — así el resto del flujo (guardado, historial, PDF) no
-    necesita saber de dónde vino la firma."""
-    if archivo_subido is None:
+def comprimir_foto_a_base64(archivo, max_chars=MAX_B64_CHARS):
+    """Toma la foto de la cámara (st.camera_input), la endereza según la orientación del
+    celular y la comprime a JPEG, reduciendo dimensiones y calidad hasta que el texto en
+    base64 quepa en una celda de Google Sheets. Devuelve el base64 o None si no se logró."""
+    if archivo is None:
         return None
     try:
-        img = Image.open(archivo_subido).convert("RGBA")
-        buffered = io.BytesIO()
-        img.save(buffered, format="PNG")
-        return base64.b64encode(buffered.getvalue()).decode()
+        img = Image.open(io.BytesIO(archivo.getvalue()))
+        img = ImageOps.exif_transpose(img).convert("RGB")
+        for lado in (1000, 800, 640, 520, 420, 340):
+            copia = img.copy()
+            copia.thumbnail((lado, lado))
+            for calidad in (70, 55, 40):
+                buffer = io.BytesIO()
+                copia.save(buffer, format="JPEG", quality=calidad, optimize=True)
+                b64 = base64.b64encode(buffer.getvalue()).decode()
+                if len(b64) <= max_chars:
+                    return b64
+        return None
     except Exception:
         return None
 
-def generar_pdf_acta(campos, imagen_firma_bytes, titulo_acta):
+def generar_pdf_acta(campos, imagen_soporte_bytes, titulo_acta):
     """Genera un PDF de una acta de mantenimiento a partir de una lista de tuplas (campo, valor)."""
     buffer = io.BytesIO()
     doc = SimpleDocTemplate(buffer, pagesize=letter, topMargin=40, bottomMargin=40, leftMargin=40, rightMargin=40)
@@ -174,14 +185,18 @@ def generar_pdf_acta(campos, imagen_firma_bytes, titulo_acta):
     elementos.append(tabla)
     elementos.append(Spacer(1, 20))
 
-    elementos.append(Paragraph("Firma de Conformidad", estilos['Heading3']))
-    if imagen_firma_bytes:
+    elementos.append(Paragraph("Soporte del Mantenimiento", estilos['Heading3']))
+    if imagen_soporte_bytes:
         try:
-            elementos.append(RLImage(io.BytesIO(imagen_firma_bytes), width=200, height=70))
+            # Se conserva la proporción de la foto (el soporte es un documento, no una firma
+            # de tamaño fijo), ajustándola a un máximo de 340 x 400 puntos.
+            ancho, alto = Image.open(io.BytesIO(imagen_soporte_bytes)).size
+            escala = min(340 / ancho, 400 / alto)
+            elementos.append(RLImage(io.BytesIO(imagen_soporte_bytes), width=ancho * escala, height=alto * escala))
         except Exception:
-            elementos.append(Paragraph("No se pudo procesar la imagen de la firma.", estilos['Normal']))
+            elementos.append(Paragraph("No se pudo procesar la foto del soporte.", estilos['Normal']))
     else:
-        elementos.append(Paragraph("Sin firma registrada en este acta.", estilos['Normal']))
+        elementos.append(Paragraph("Sin foto de soporte registrada en esta acta.", estilos['Normal']))
 
     doc.build(elementos)
     buffer.seek(0)
@@ -223,8 +238,6 @@ if col_area and not df_mantenimiento[col_area].isnull().all():
         df_mantenimiento = df_mantenimiento[df_mantenimiento[col_area].isin(area_filtro)]
         df_mantenimiento_alertas = df_mantenimiento_alertas[df_mantenimiento_alertas[col_area].isin(area_filtro)]
 
-# Lista maestra de áreas para el formulario: se toma de TODO el histórico (sin filtro de fecha)
-# para que el desplegable del filtro del sidebar siempre incluya todas las áreas registradas.
 st.sidebar.markdown("---")
 
 # 4. INTERFAZ DE PESTAÑAS
@@ -232,7 +245,7 @@ tab_form, tab_dashboard, tab_datos, tab_firmas = st.tabs([
     "📝 Nuevo Mantenimiento",
     "📊 Dashboard de Gestión", 
     "📋 Datos Completos", 
-    "📄 Historial de Firmas"
+    "📄 Historial de Soportes"
 ])
 
 # --- PESTAÑA 1: FORMULARIO DE REGISTRO NATIVO (IT) ---
@@ -348,91 +361,74 @@ with tab_form:
 
     st.write("---")
 
-    # FIRMA
-    st.markdown("### ✍️ Firma de Conformidad")
-    st.markdown("Firma del usuario responsable aceptando el equipo tras el mantenimiento.")
+    # SOPORTE FOTOGRÁFICO (reemplaza al pad de firmas)
+    st.markdown("### 📷 Soporte del Mantenimiento")
+    st.markdown("Toma con la cámara una foto del acta o soporte físico del mantenimiento (firmado por el usuario).")
 
-    metodo_firma = st.radio(
-        "Método de firma:",
-        ["🖊️ Dibujar en pantalla", "📷 Subir foto de la firma"],
-        horizontal=True,
-        help="Si el lienzo de dibujo llegara a fallar (por ejemplo, por una actualización de Streamlit), "
-             "usa esta opción para tomarle una foto a la firma en papel y subirla en su lugar.",
+    foto_soporte = st.camera_input(
+        "Toma la foto del soporte*",
+        key="foto_soporte",
+        help="Encuadra el documento completo, con buena luz y sin reflejos. "
+             "Si no te gusta la foto, usa el botón para tomarla de nuevo antes de guardar.",
     )
-
-    firma_nueva = None
-    archivo_firma = None
-
-    if metodo_firma == "🖊️ Dibujar en pantalla":
-        firma_nueva = st_canvas(
-            stroke_width=3, stroke_color="#000000", background_color="#f8fafc",
-            height=200, width=600, drawing_mode="freedraw", key="firma_formulario",
-        )
-    else:
-        archivo_firma = st.file_uploader(
-            "Sube una foto o escaneo de la firma (JPG o PNG):",
-            type=["jpg", "jpeg", "png"],
-            key="firma_archivo",
-        )
-        if archivo_firma is not None:
-            st.image(archivo_firma, caption="Vista previa de la firma", width=280)
 
     if st.button("💾 Guardar y Subir Mantenimiento", type="primary"):
         if not f_placas or not f_usuario or not f_analista or not f_area:
             st.error("⚠️ Los campos de Placa, Usuario Responsable, Área/Departamento y Analista son obligatorios.")
-        elif metodo_firma == "🖊️ Dibujar en pantalla" and (firma_nueva is None or firma_nueva.image_data is None):
-            st.warning("⚠️ Debes proporcionar una firma en el lienzo antes de guardar.")
-        elif metodo_firma == "📷 Subir foto de la firma" and archivo_firma is None:
-            st.warning("⚠️ Debes subir una foto de la firma antes de guardar.")
+        elif foto_soporte is None:
+            st.warning("⚠️ Debes tomar la foto del soporte del mantenimiento antes de guardar.")
         else:
-            if metodo_firma == "🖊️ Dibujar en pantalla":
-                firma_b64 = convertir_imagen_a_base64(firma_nueva.image_data)
-            else:
-                firma_b64 = convertir_archivo_subido_a_base64(archivo_firma)
-            
-            datos_mantenimiento = {
-                "fecha_mantenimiento": f_fecha.strftime("%Y-%m-%d"),
-                "usuario": f_usuario.strip().upper(),
-                "cargo": f_cargo.strip().upper(),
-                "area": f_area.strip().upper(),
-                "placas": f_placas.strip().upper(),
-                "marca_modelo": f_marca.strip().upper(),
-                "num_serie": f_serie.strip().upper(),
-                
-                "condiciones_iniciales": ", ".join(f_condiciones),
-                "act_limpieza": ", ".join(f_limpieza),
-                "act_revision_elec": ", ".join(f_revision_elec),
-                "act_pruebas": ", ".join(f_pruebas),
-                "act_optimizacion": ", ".join(f_optimizacion),
-                "act_respaldo": ", ".join(f_respaldo),
-                
-                "hallazgos": f_hallazgos.replace('\n', ' | '),
-                "repuestos": f_repuestos.replace('\n', ' | '),
-                "recomendaciones": f_recomendaciones.replace('\n', ' | '),
-                
-                "validacion_estado": f_validacion,
-                "analista": f_analista.strip().upper(),
-                "proximo_mantenimiento": f_proximo.strftime("%Y-%m-%d"),
-                
-                "firma_base64": firma_b64
-            }
-            
-            if WEBHOOK_URL == "":
-                st.info("ℹ️ El formulario funciona perfectamente. En el siguiente paso conectaremos la base de datos para registrar esto.")
-            else:
-                try:
-                    respuesta = requests.post(WEBHOOK_URL, json=datos_mantenimiento)
+            foto_b64 = comprimir_foto_a_base64(foto_soporte)
 
-                    if respuesta.status_code == 200 and "success" in respuesta.text:
-                        st.success(f"✅ ¡El acta del equipo {f_placas} se ha subido correctamente!")
-                        st.balloons()
-                    else:
-                        st.error("⚠️ Google rechazó el registro. Revisa los detalles a continuación.")
-                        with st.expander("Detalles técnicos del error"):
-                            st.write(f"Código HTTP: {respuesta.status_code}")
-                            st.write(f"Respuesta cruda de Google: {respuesta.text}")
-                except Exception as e:
-                    st.error(f"Error de conexión: {str(e)}")
+            if foto_b64 is None:
+                st.error("⚠️ No se pudo procesar la foto del soporte. Toma la foto nuevamente e intenta otra vez.")
+            else:
+                # Se mantiene la clave "firma_base64" para no romper el Apps Script ni el
+                # nombre de la columna en la hoja de cálculo.
+                datos_mantenimiento = {
+                    "fecha_mantenimiento": f_fecha.strftime("%Y-%m-%d"),
+                    "usuario": f_usuario.strip().upper(),
+                    "cargo": f_cargo.strip().upper(),
+                    "area": f_area.strip().upper(),
+                    "placas": f_placas.strip().upper(),
+                    "marca_modelo": f_marca.strip().upper(),
+                    "num_serie": f_serie.strip().upper(),
+
+                    "condiciones_iniciales": ", ".join(f_condiciones),
+                    "act_limpieza": ", ".join(f_limpieza),
+                    "act_revision_elec": ", ".join(f_revision_elec),
+                    "act_pruebas": ", ".join(f_pruebas),
+                    "act_optimizacion": ", ".join(f_optimizacion),
+                    "act_respaldo": ", ".join(f_respaldo),
+
+                    "hallazgos": f_hallazgos.replace('\n', ' | '),
+                    "repuestos": f_repuestos.replace('\n', ' | '),
+                    "recomendaciones": f_recomendaciones.replace('\n', ' | '),
+
+                    "validacion_estado": f_validacion,
+                    "analista": f_analista.strip().upper(),
+                    "proximo_mantenimiento": f_proximo.strftime("%Y-%m-%d"),
+
+                    "firma_base64": foto_b64
+                }
+
+                if WEBHOOK_URL == "":
+                    st.info("ℹ️ El formulario funciona perfectamente. En el siguiente paso conectaremos la base de datos para registrar esto.")
+                else:
+                    try:
+                        with st.spinner("Subiendo el registro..."):
+                            respuesta = requests.post(WEBHOOK_URL, json=datos_mantenimiento, timeout=60)
+
+                        if respuesta.status_code == 200 and "success" in respuesta.text:
+                            st.success(f"✅ ¡El acta del equipo {f_placas} se ha subido correctamente!")
+                            st.balloons()
+                        else:
+                            st.error("⚠️ Google rechazó el registro. Revisa los detalles a continuación.")
+                            with st.expander("Detalles técnicos del error"):
+                                st.write(f"Código HTTP: {respuesta.status_code}")
+                                st.write(f"Respuesta cruda de Google: {respuesta.text}")
+                    except Exception as e:
+                        st.error(f"Error de conexión: {str(e)}")
 
 # --- PESTAÑA 2: DASHBOARD ---
 with tab_dashboard:
@@ -659,7 +655,7 @@ with tab_dashboard:
 
         st.write("---")
         st.markdown("### 📅 Registros Más Recientes")
-        st.dataframe(df_mantenimiento.drop(columns=['FECHA_CLEAN'], errors='ignore').head(10), use_container_width=True)
+        st.dataframe(df_mantenimiento.drop(columns=COLS_OCULTAS, errors='ignore').head(10), use_container_width=True)
     else:
         if not msj_error:
             st.info("No hay registros en la hoja de cálculo todavía.")
@@ -668,29 +664,32 @@ with tab_dashboard:
 with tab_datos:
     st.subheader("Tabla Completa de Mantenimientos")
     if not df_mantenimiento.empty:
+        df_export = df_mantenimiento.drop(columns=COLS_OCULTAS, errors='ignore')
+        st.caption("La foto del soporte no se incluye en esta tabla ni en las descargas; consúltala en la pestaña «Historial de Soportes».")
+
         col_desc1, col_desc2 = st.columns(2)
         with col_desc1:
-            csv_data = df_mantenimiento.drop(columns=['FECHA_CLEAN'], errors='ignore').to_csv(index=False).encode('utf-8-sig')
+            csv_data = df_export.to_csv(index=False).encode('utf-8-sig')
             st.download_button("⬇️ Descargar CSV", data=csv_data, file_name=f"mantenimientos_{datetime.now().strftime('%Y%m%d')}.csv", mime="text/csv")
         with col_desc2:
             try:
                 excel_buffer = io.BytesIO()
                 with pd.ExcelWriter(excel_buffer, engine='openpyxl') as writer:
-                    df_mantenimiento.drop(columns=['FECHA_CLEAN'], errors='ignore').to_excel(writer, sheet_name='Mantenimientos', index=False)
+                    df_export.to_excel(writer, sheet_name='Mantenimientos', index=False)
                 excel_buffer.seek(0)
                 st.download_button("⬇️ Descargar Excel", data=excel_buffer.getvalue(), file_name=f"mantenimientos_{datetime.now().strftime('%Y%m%d')}.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
             except ModuleNotFoundError:
                 st.warning("⚠️ Agrega `openpyxl` a tu `requirements.txt` en GitHub para descargar en Excel.")
                 
         st.write("---")
-        st.dataframe(df_mantenimiento.drop(columns=['FECHA_CLEAN'], errors='ignore'), use_container_width=True, height=500)
+        st.dataframe(df_export, use_container_width=True, height=500)
     else:
         st.info("No hay registros para mostrar.")
 
-# --- PESTAÑA 4: HISTORIAL DE FIRMAS ---
+# --- PESTAÑA 4: HISTORIAL DE SOPORTES ---
 with tab_firmas:
-    st.subheader("📄 Historial de Actas con Firma Verificada")
-    st.info("Selecciona o despliega cualquier registro para consultar sus detalles completos y la firma de conformidad.")
+    st.subheader("📄 Historial de Actas con Soporte Fotográfico")
+    st.info("Selecciona o despliega cualquier registro para consultar sus detalles completos y la foto del soporte del mantenimiento.")
     
     if not df_mantenimiento.empty:
         col_firma_col = next((c for c in df_mantenimiento.columns if 'FIRMA' in c), None)
@@ -727,7 +726,7 @@ with tab_firmas:
             fecha_val = row[col_fecha_col] if col_fecha_col and pd.notna(row[col_fecha_col]) else "Fecha no registrada"
             
             with st.expander(f"📌 Acta Equipo Placas: {placa_val} — Responsable: {usuario_val} ({fecha_val})"):
-                cols_det1, cols_det2 = st.columns([2, 1])
+                cols_det1, cols_det2 = st.columns([1, 1])
 
                 campos_pdf = []
                 with cols_det1:
@@ -739,29 +738,29 @@ with tab_firmas:
                                 st.markdown(f"**{col.replace('_', ' ').title()}:** {val_celda}")
                                 campos_pdf.append((col.replace('_', ' ').title(), val_celda))
 
-                imagen_firma_bytes = None
+                imagen_soporte_bytes = None
                 with cols_det2:
-                    st.markdown("#### Firma de Conformidad")
+                    st.markdown("#### Soporte del Mantenimiento")
                     if col_firma_col and pd.notna(row[col_firma_col]):
-                        firma_base64 = str(row[col_firma_col]).strip()
-                        if firma_base64 != "":
+                        soporte_base64 = str(row[col_firma_col]).strip()
+                        if soporte_base64 != "":
                             try:
-                                if "," in firma_base64:
-                                    firma_base64 = firma_base64.split(",")[1]
-                                imagen_firma_bytes = base64.b64decode(firma_base64)
-                                image = Image.open(io.BytesIO(imagen_firma_bytes))
-                                st.image(image, width=280)
+                                if "," in soporte_base64:
+                                    soporte_base64 = soporte_base64.split(",")[1]
+                                imagen_soporte_bytes = base64.b64decode(soporte_base64)
+                                image = Image.open(io.BytesIO(imagen_soporte_bytes))
+                                st.image(image, width=400)
                             except Exception as e:
-                                st.warning("No se pudo procesar la imagen de la firma.")
+                                st.warning("No se pudo procesar la foto del soporte.")
                         else:
-                            st.info("Sin firma registrada en este campo.")
+                            st.info("Sin foto de soporte registrada en este campo.")
                     else:
-                        st.info("No hay datos de firma para este registro.")
+                        st.info("No hay foto de soporte para este registro.")
 
                 st.write("---")
                 if REPORTLAB_DISPONIBLE:
                     pdf_bytes = generar_pdf_acta(
-                        campos_pdf, imagen_firma_bytes,
+                        campos_pdf, imagen_soporte_bytes,
                         titulo_acta=f"Equipo: {placa_val} · Responsable: {usuario_val} · Fecha: {fecha_val}"
                     )
                     nombre_archivo = f"acta_{str(placa_val).replace(' ', '_')}_{str(fecha_val).replace('/', '-')}.pdf"
