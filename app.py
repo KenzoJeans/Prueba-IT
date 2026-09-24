@@ -365,12 +365,32 @@ with tab_form:
     st.markdown("### 📷 Soporte del Mantenimiento")
     st.markdown("Toma con la cámara una foto del acta o soporte físico del mantenimiento (firmado por el usuario).")
 
-    foto_soporte = st.camera_input(
-        "Toma la foto del soporte*",
-        key="foto_soporte",
-        help="Encuadra el documento completo, con buena luz y sin reflejos. "
-             "Si no te gusta la foto, usa el botón para tomarla de nuevo antes de guardar.",
-    )
+    # La cámara NO se activa sola al cargar el formulario: se muestra primero un botón, y
+    # solo cuando el operario lo presiona se despliega st.camera_input (que es lo que
+    # realmente pide permiso al navegador y enciende la cámara del celular). Así el usuario
+    # decide cuándo está listo para tomar la foto, en vez de que el celular pida acceso a la
+    # cámara apenas se abre la pestaña.
+    if "camara_activa" not in st.session_state:
+        st.session_state.camara_activa = False
+
+    foto_soporte = None
+
+    if not st.session_state.camara_activa:
+        if st.button("📷 Tomar foto del soporte*", key="btn_tomar_foto"):
+            st.session_state.camara_activa = True
+            st.rerun()
+    else:
+        foto_soporte = st.camera_input(
+            "Toma la foto del soporte*",
+            key="foto_soporte",
+            help="Encuadra el documento completo, con buena luz y sin reflejos. "
+                 "Si no te gusta la foto, usa el botón para tomarla de nuevo antes de guardar.",
+        )
+        if st.button("✖️ Ocultar cámara", key="btn_ocultar_camara"):
+            st.session_state.camara_activa = False
+            if "foto_soporte" in st.session_state:
+                del st.session_state["foto_soporte"]
+            st.rerun()
 
     if st.button("💾 Guardar y Subir Mantenimiento", type="primary"):
         if not f_placas or not f_usuario or not f_analista or not f_area:
@@ -422,6 +442,12 @@ with tab_form:
                         if respuesta.status_code == 200 and "success" in respuesta.text:
                             st.success(f"✅ ¡El acta del equipo {f_placas} se ha subido correctamente!")
                             st.balloons()
+                            # Se reinicia la cámara para el próximo registro: sin esto, el
+                            # siguiente mantenimiento arrancaría con la cámara ya abierta y
+                            # la foto anterior todavía cargada.
+                            st.session_state.camara_activa = False
+                            if "foto_soporte" in st.session_state:
+                                del st.session_state["foto_soporte"]
                         else:
                             st.error("⚠️ Google rechazó el registro. Revisa los detalles a continuación.")
                             with st.expander("Detalles técnicos del error"):
