@@ -363,42 +363,40 @@ with tab_form:
 
     # SOPORTE FOTOGRÁFICO (reemplaza al pad de firmas)
     st.markdown("### 📷 Soporte del Mantenimiento")
-    st.markdown("Toma con la cámara una foto del acta o soporte físico del mantenimiento (firmado por el usuario).")
+    st.markdown("Adjunta una foto del acta o soporte físico del mantenimiento (firmado por el usuario): tomándola con la cámara o subiendo una foto ya existente desde el computador.")
 
-    # La cámara NO se activa sola al cargar el formulario: se muestra primero un botón, y
-    # solo cuando el operario lo presiona se despliega st.camera_input (que es lo que
-    # realmente pide permiso al navegador y enciende la cámara del celular). Así el usuario
-    # decide cuándo está listo para tomar la foto, en vez de que el celular pida acceso a la
-    # cámara apenas se abre la pestaña.
-    if "camara_activa" not in st.session_state:
-        st.session_state.camara_activa = False
+    metodo_soporte = st.radio(
+        "Método para adjuntar el soporte:",
+        ["📷 Tomar foto con la cámara", "📁 Subir foto existente"],
+        horizontal=True,
+        help="Usa 'Tomar foto con la cámara' si estás en el celular junto al equipo. "
+             "Usa 'Subir foto existente' si estás llenando el reporte desde el computador "
+             "con una foto que ya tienes guardada.",
+    )
 
-    foto_soporte = None
-
-    if not st.session_state.camara_activa:
-        if st.button("📷 Tomar foto del soporte*", key="btn_tomar_foto"):
-            st.session_state.camara_activa = True
-            st.rerun()
-    else:
-        foto_soporte = st.camera_input(
+    if metodo_soporte == "📷 Tomar foto con la cámara":
+        archivo_soporte = st.camera_input(
             "Toma la foto del soporte*",
-            key="foto_soporte",
+            key="foto_soporte_camara",
             help="Encuadra el documento completo, con buena luz y sin reflejos. "
                  "Si no te gusta la foto, usa el botón para tomarla de nuevo antes de guardar.",
         )
-        if st.button("✖️ Ocultar cámara", key="btn_ocultar_camara"):
-            st.session_state.camara_activa = False
-            if "foto_soporte" in st.session_state:
-                del st.session_state["foto_soporte"]
-            st.rerun()
+    else:
+        archivo_soporte = st.file_uploader(
+            "Sube la foto del soporte (JPG o PNG)*",
+            type=["jpg", "jpeg", "png"],
+            key="foto_soporte_archivo",
+        )
+        if archivo_soporte is not None:
+            st.image(archivo_soporte, caption="Vista previa del soporte", width=280)
 
     if st.button("💾 Guardar y Subir Mantenimiento", type="primary"):
         if not f_placas or not f_usuario or not f_analista or not f_area:
             st.error("⚠️ Los campos de Placa, Usuario Responsable, Área/Departamento y Analista son obligatorios.")
-        elif foto_soporte is None:
-            st.warning("⚠️ Debes tomar la foto del soporte del mantenimiento antes de guardar.")
+        elif archivo_soporte is None:
+            st.warning("⚠️ Debes adjuntar la foto del soporte del mantenimiento antes de guardar.")
         else:
-            foto_b64 = comprimir_foto_a_base64(foto_soporte)
+            foto_b64 = comprimir_foto_a_base64(archivo_soporte)
 
             if foto_b64 is None:
                 st.error("⚠️ No se pudo procesar la foto del soporte. Toma la foto nuevamente e intenta otra vez.")
@@ -442,12 +440,6 @@ with tab_form:
                         if respuesta.status_code == 200 and "success" in respuesta.text:
                             st.success(f"✅ ¡El acta del equipo {f_placas} se ha subido correctamente!")
                             st.balloons()
-                            # Se reinicia la cámara para el próximo registro: sin esto, el
-                            # siguiente mantenimiento arrancaría con la cámara ya abierta y
-                            # la foto anterior todavía cargada.
-                            st.session_state.camara_activa = False
-                            if "foto_soporte" in st.session_state:
-                                del st.session_state["foto_soporte"]
                         else:
                             st.error("⚠️ Google rechazó el registro. Revisa los detalles a continuación.")
                             with st.expander("Detalles técnicos del error"):
